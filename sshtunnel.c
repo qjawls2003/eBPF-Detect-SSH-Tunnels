@@ -299,7 +299,7 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     fflush(fp);
     */
     if (envVar.print) {
-      printf("A tunnel created from remote IP: %s:%d going to %s:%d \n",
+      printf("A SSH tunnel detected from remote IP: %s:%d going to %s:%d \n",
       remoteData.ipAddress, remoteData.port, sockData.ipAddress, sockData.port);
       /*
       printf("%-8s %-6d %-6d %-6d %-16s %-16s %-16s %-16d\n", ts,
@@ -377,9 +377,12 @@ int main(int argc, char **argv) {
   log_info("%s", "Starting program...");
   log_set_level(logLevel);
   if (envVar.print) {
+    /*
     printf("%-24s %-6s %-6s %-6s %-16s %-16s %-16s %-16s %-16s %-6s\n",
            "Timestamp", "PID", "PPID", "UID", "Current User", "Origin User",
            "Command", "IP Address", "Port", "Command Args");
+    */
+    printf("Detecting SSH tunnel going through this box... \n");
   }
 
   fp = fopen("/var/log/sshtunnel.log", "a"); // open file
