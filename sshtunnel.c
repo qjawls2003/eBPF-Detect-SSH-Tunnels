@@ -299,18 +299,35 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     fflush(fp);
     */
     if (envVar.print) {
-      printf("A SSH tunnel detected from remote IP: %s:%d going to %s:%d \n",
-      remoteData.ipAddress, remoteData.port, sockData.ipAddress, sockData.port);
-      /*
-      printf("%-8s %-6d %-6d %-6d %-16s %-16s %-16s %-16d\n", ts,
+      printf("A SSH tunnel detected!\n");
+      
+      printf("%-8s %-6d %-6d %-6d %-16s %-16s %-16s %-16d %-16s %-16d\n", ts,
              m->pid, m->ppid, m->uid, originalUser, m->command,
-             sockData.ipAddress, sockData.port);
-      */
+              remoteData.ipAddress, remoteData.port,
+              sockData.ipAddress, sockData.port);
+      
     }
   
   } else if (m->type_id == EXECVE) {
     log_info("User started SSH");
-
+    struct event eventArg;
+    int eventErr;
+    int eventMap = bpf_obj_get("/sys/fs/bpf/execs"); // event for binary path
+    if (eventMap <= 0) {
+      log_trace("%s",
+                "No file descriptor returned for the user BPF map object");
+    } else {
+      eventErr = bpf_map_lookup_elem(eventMap, &m->pid, &eventArg);
+      if (eventErr == 0) {
+        log_trace("Looked up ARGs '%d' in the event BPF map", eventArg.pid);
+      } else {
+        log_trace("No Event returned for %d, instead got: %d", m->pid,
+                  eventArg.pid);
+      }
+    }
+    char *args_log = print_args(eventArg);
+    printf("A command: %s, args: %s, PID: %d,\n",m->command, args_log, m->pid);
+    free(args_log);
   } else if (m->type_id == GETPEERNAME) {
     if (addrMap){
       bpf_map_update_elem(addrMap, &m->pid, &sockData, BPF_ANY);
@@ -377,12 +394,12 @@ int main(int argc, char **argv) {
   log_info("%s", "Starting program...");
   log_set_level(logLevel);
   if (envVar.print) {
-    /*
-    printf("%-24s %-6s %-6s %-6s %-16s %-16s %-16s %-16s %-16s %-6s\n",
-           "Timestamp", "PID", "PPID", "UID", "Current User", "Origin User",
-           "Command", "IP Address", "Port", "Command Args");
-    */
     printf("Detecting SSH tunnel going through this box... \n");
+    printf("%-8s %-6s %-6s %-6s %-6s %-16s %-16s %-16s %-16s %-16s\n",
+           "Timestamp", "PID", "PPID", "UID", "User",
+           "Command", "Source IP", "Source Port", "Destination IP", "Destination Port");
+    
+    
   }
 
   fp = fopen("/var/log/sshtunnel.log", "a"); // open file

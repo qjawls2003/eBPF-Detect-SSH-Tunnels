@@ -316,7 +316,7 @@ int tracepoint__syscalls__sys_exit_execve(
   }
 
 cleanup:
-  //bpf_map_delete_elem(&execs, &pid);
+  //bpf_map_delete_elem(&execs, &tid);
   return 0;
 }
 
