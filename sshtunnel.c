@@ -89,6 +89,10 @@ struct ipData {
   uint16_t port;
 };
 
+bool forward = false;
+bool reverse = false;
+char *forward_param = "-L";
+char *reverse_param = "-R";
 
 char * print_args(const struct event e)
 {
@@ -112,6 +116,12 @@ char * print_args(const struct event e)
   len = strlen(args);
   args[len+1] = '\0';
   //printf("%s\n",args);
+  if (strstr(args,forward_param) != NULL) {
+    forward = true;
+  }
+  if (strstr(args,reverse_param) != NULL) {
+    reverse = true;
+  }
   return args;
 }
 
@@ -232,60 +242,30 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
   strftime(ts, sizeof(ts), "%c", tm);
 
   int addrErr;
-  int userErr;
-  uid_t org_user;
   log_trace("%s", "Getting the user BPF map object");
-  int userMap = bpf_obj_get("/sys/fs/bpf/raw_user"); // PID -> user 
-  if (userMap <= 0) {
-    log_debug("%s", "No file descriptor returned for the user BPF map object");
-  } else {
-    log_trace("Looking up PPID %d in the user BPF map", m->ppid);
-    userErr = bpf_map_lookup_elem(userMap, &m->ppid, &org_user);
-  }
-
-  if (userErr == 0) {
-    log_trace("Ancestor user found");
-  } else {
-    log_trace("Ancestor user not found");
-  }
-
-
 
   int addrMap = bpf_obj_get("/sys/fs/bpf/addresses"); // pid -> IP data
   if (addrMap <= 0) {
     log_debug("No addr map file descriptor returned for the port BPF map object");
   }
 
-
   if (m->type_id == CONNECT) {
-    pid_t pid = m->ppid;
+    pid_t pid = m->pid;
     struct ipData remoteData;
-    addrErr = bpf_map_lookup_elem(addrMap, &pid, &remoteData); //get the origin of SSH tunnel
-    userErr = bpf_map_lookup_elem(userMap, &pid, &org_user); 
+    addrErr = bpf_map_lookup_elem(addrMap, &m->ppid, &remoteData); //get the origin of SSH tunnel
     if (addrErr != 0) {
           log_trace("Couldn't find a corresponding sockaddr_in for the %d sshd process",pid);
           return; //not a tunnel
     } else {
           log_trace("Found a corresponding sockaddr_in for the sshd process");
     }
-    if (userErr != 0) {
-          log_trace("Couldn't find a corresponding user for the sshd process");
-          return; //not a tunnel
-    } else {
-          log_trace("Found a corresponding user for the sshd process");
-    }
-    if (sockData.port == 0) {
+    if (sockData.port == 0) { //internal connect syscalls
       return;
     }
-    char *originalUser;
-    if (userErr == 0) {
-      uid_t originalUID = getUID(pid);
-      originalUser = getUser(originalUID);
-      log_trace("OriginalUser found, %s", originalUser);
-    } else { 
-      originalUser = getUser(m->uid);
-      log_trace("OriginalUser not found, %s", originalUser);
-    }
+    char *currentUser;
+    currentUser = getUser(m->uid);
+    log_trace("OriginalUser found, %s", currentUser);
+
     if (fp == NULL) {
         log_info("Log file could not be opened");
     }
@@ -299,17 +279,19 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     fflush(fp);
     */
     if (envVar.print) {
-      printf("A SSH tunnel detected!\n");
-      
-      printf("%-8s %-6d %-6d %-6d %-16s %-16s %-16s %-16d %-16s %-16d\n", ts,
-             m->pid, m->ppid, m->uid, originalUser, m->command,
+      log_trace("A SSH tunnel detected!\n");
+      printf("\"Message\":\"SSH tunnel going through here\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,\"PPID\":%d\n",remoteData.ipAddress, remoteData.port,
+              sockData.ipAddress, sockData.port, m->pid, m->ppid);
+      /*
+      printf("Tunnel detected on this host! %-8s %-6d %-6d %-6d %-10s %-10s %-16s %-16d %-16s %-16d \n", ts,
+             m->pid, m->ppid, m->uid, currentUser, m->command,
               remoteData.ipAddress, remoteData.port,
               sockData.ipAddress, sockData.port);
-      
+      */
     }
   
   } else if (m->type_id == EXECVE) {
-    log_info("User started SSH");
+    log_trace("User started SSH");
     struct event eventArg;
     int eventErr;
     int eventMap = bpf_obj_get("/sys/fs/bpf/execs"); // event for binary path
@@ -326,8 +308,18 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
       }
     }
     char *args_log = print_args(eventArg);
-    printf("A command: %s, args: %s, PID: %d,\n",m->command, args_log, m->pid);
+    if (forward) {
+      printf("\"Message\":\"Forward tunnel created\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      forward = false;
+    } else if (reverse) {
+      printf("\"Message\":\"Reverse tunnel created\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      reverse = false;
+    } else {
+      printf("\"Message\":\"SSH executed\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+    }
+
     free(args_log);
+
   } else if (m->type_id == GETPEERNAME) {
     if (addrMap){
       bpf_map_update_elem(addrMap, &m->pid, &sockData, BPF_ANY);
@@ -394,11 +386,12 @@ int main(int argc, char **argv) {
   log_info("%s", "Starting program...");
   log_set_level(logLevel);
   if (envVar.print) {
-    printf("Detecting SSH tunnel going through this box... \n");
-    printf("%-8s %-6s %-6s %-6s %-6s %-16s %-16s %-16s %-16s %-16s\n",
+    printf("Detecting SSH tunnels... \n");
+    /*
+    printf("%-24s %-6s %-6s %-6s %-10s %-10s %-16s %-16s %-16s %-16s %-16s\n",
            "Timestamp", "PID", "PPID", "UID", "User",
-           "Command", "Source IP", "Source Port", "Destination IP", "Destination Port");
-    
+           "Command", "Source IP", "Source Port", "Destination IP", "Destination Port", "Message");
+    */
     
   }
 
