@@ -91,8 +91,10 @@ struct ipData {
 
 bool forward = false;
 bool reverse = false;
+bool dynamic = false;
 char *forward_param = "-L";
 char *reverse_param = "-R";
+char *dynamic_param = "-D";
 
 char * print_args(const struct event e)
 {
@@ -121,6 +123,9 @@ char * print_args(const struct event e)
   }
   if (strstr(args,reverse_param) != NULL) {
     reverse = true;
+  }
+  if (strstr(args,dynamic_param) != NULL) {
+    dynamic = true;
   }
   return args;
 }
@@ -280,7 +285,7 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     */
     if (envVar.print) {
       log_trace("A SSH tunnel detected!\n");
-      printf("\"Message\":\"SSH tunnel going through here\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,\"PPID\":%d\n",remoteData.ipAddress, remoteData.port,
+      printf("\"Message\":\"SSH tunneling via this host\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,\"PPID\":%d\n",remoteData.ipAddress, remoteData.port,
               sockData.ipAddress, sockData.port, m->pid, m->ppid);
       /*
       printf("Tunnel detected on this host! %-8s %-6d %-6d %-6d %-10s %-10s %-16s %-16d %-16s %-16d \n", ts,
@@ -309,11 +314,14 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     }
     char *args_log = print_args(eventArg);
     if (forward) {
-      printf("\"Message\":\"Forward tunnel created\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf("\"Message\":\"Local forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
       forward = false;
     } else if (reverse) {
-      printf("\"Message\":\"Reverse tunnel created\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf("\"Message\":\"Remote forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
       reverse = false;
+    } else if (dynamic) {
+      printf("\"Message\":\"Dynamic forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      dynamic = false;
     } else {
       printf("\"Message\":\"SSH executed\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
     }
