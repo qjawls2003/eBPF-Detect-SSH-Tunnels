@@ -45,3 +45,9 @@ sudo apt-get install gcc-multilib
 sudo apt-get install llvm  
 make
 ```
+## Logging
+
+The logs are generated in a JSON format (not JSON object).
+```
+/var/log/sshtunnel.log
+```
