@@ -7,6 +7,7 @@
  */
 
 #define _POSIX_SOURCE
+
 #include <argp.h>
 #include <arpa/inet.h>
 #include <bpf/bpf.h>
@@ -29,7 +30,6 @@
 #define CONNECT 2
 #define EXECVE 3
 #define MAX_ARGS_KEY 259
-
 
 static int logLevel = LOG_INFO; // set desired logging level here
 
@@ -66,9 +66,11 @@ static struct envVar {
   bool warning;
   bool all;
   int max_args;
-} envVar = {.print = false, .verbose = false, .warning = false, .all = false,
-  .max_args = DEFAULT_MAXARGS
-};
+} envVar = {.print = false,
+            .verbose = false,
+            .warning = false,
+            .all = false,
+            .max_args = DEFAULT_MAXARGS};
 
 void intHandler(int signal) {
   log_trace("Received interrupt signal, exiting");
@@ -96,35 +98,34 @@ char *forward_param = "-L";
 char *reverse_param = "-R";
 char *dynamic_param = "-D";
 
-char * print_args(const struct event e)
-{
-	int i, args_counter = 0;
-  char * args = malloc(envVar.max_args);
+char *print_args(const struct event e) {
+  int i, args_counter = 0;
+  char *args = malloc(envVar.max_args);
   args[0] = '\0';
   int len;
-	for (i = 0; i < e.args_size && args_counter < e.args_count; i++) {
+  for (i = 0; i < e.args_size && args_counter < e.args_count; i++) {
     len = strlen(args);
-		char c = e.args[i];
+    char c = e.args[i];
 
-			if (c == '\0') {
-				args_counter++;
-				args[len] = ' ';
-        args[len+1] = '\0';
-			} else {
-				args[len] = c;
-        args[len+1] = '\0';
-			}
-	}
+    if (c == '\0') {
+      args_counter++;
+      args[len] = ' ';
+      args[len + 1] = '\0';
+    } else {
+      args[len] = c;
+      args[len + 1] = '\0';
+    }
+  }
   len = strlen(args);
-  args[len+1] = '\0';
-  //printf("%s\n",args);
-  if (strstr(args,forward_param) != NULL) {
+  args[len + 1] = '\0';
+  // printf("%s\n",args);
+  if (strstr(args, forward_param) != NULL) {
     forward = true;
   }
-  if (strstr(args,reverse_param) != NULL) {
+  if (strstr(args, reverse_param) != NULL) {
     reverse = true;
   }
-  if (strstr(args,dynamic_param) != NULL) {
+  if (strstr(args, dynamic_param) != NULL) {
     dynamic = true;
   }
   return args;
@@ -232,7 +233,6 @@ uid_t getUID(pid_t pid) {
   return uid;
 }
 
-
 void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
   log_trace("%s", "Entering handle_event()");
   struct data_t *m = data;
@@ -251,20 +251,24 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
 
   int addrMap = bpf_obj_get("/sys/fs/bpf/addresses"); // pid -> IP data
   if (addrMap <= 0) {
-    log_debug("No addr map file descriptor returned for the port BPF map object");
+    log_debug(
+        "No addr map file descriptor returned for the port BPF map object");
   }
 
   if (m->type_id == CONNECT) {
     pid_t pid = m->pid;
     struct ipData remoteData;
-    addrErr = bpf_map_lookup_elem(addrMap, &m->ppid, &remoteData); //get the origin of SSH tunnel
+    addrErr = bpf_map_lookup_elem(addrMap, &m->ppid,
+                                  &remoteData); // get the origin of SSH tunnel
     if (addrErr != 0) {
-          log_trace("Couldn't find a corresponding sockaddr_in for the %d sshd process",pid);
-          return; //not a tunnel
+      log_trace(
+          "Couldn't find a corresponding sockaddr_in for the %d sshd process",
+          pid);
+      return; // not a tunnel
     } else {
-          log_trace("Found a corresponding sockaddr_in for the sshd process");
+      log_trace("Found a corresponding sockaddr_in for the sshd process");
     }
-    if (sockData.port == 0) { //internal connect syscalls
+    if (sockData.port == 0) { // internal connect syscalls
       return;
     }
     char *currentUser;
@@ -272,29 +276,32 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     log_trace("OriginalUser found, %s", currentUser);
 
     if (fp == NULL) {
-        log_info("Log file could not be opened");
+      log_info("Log file could not be opened");
     }
-    /*
+    
     fprintf(fp,
-            "{\"timestamp\":%ld,\"pid\":%d,\"ppid\":%d,\"uid\":%d,"
-            "\"currentUser\":\"%s\",\"originalUser\":\"%s\",\"command\":\"%s\","
-            "\"ip\":\"%s\",\"port\":%d}\n",
-            t, m->pid, m->ppid, m->uid, currentUser, originalUser, m->command,
-            sockData.ipAddress, sockData.port);
+            "{\"Message\":\"SSH tunneling via this "
+             "host\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,"
+             "\"PPID\":%d}\n",
+             remoteData.ipAddress, remoteData.port, sockData.ipAddress,
+             sockData.port, m->pid, m->ppid);
     fflush(fp);
-    */
+    
     if (envVar.print) {
       log_trace("A SSH tunnel detected!\n");
-      printf("\"Message\":\"SSH tunneling via this host\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,\"PPID\":%d\n",remoteData.ipAddress, remoteData.port,
-              sockData.ipAddress, sockData.port, m->pid, m->ppid);
+      printf("\"Message\":\"SSH tunneling via this "
+             "host\",\"Source\":\"%s:%d\",\"Destination\":\"%s:%d,PID\":%d,"
+             "\"PPID\":%d\n",
+             remoteData.ipAddress, remoteData.port, sockData.ipAddress,
+             sockData.port, m->pid, m->ppid);
       /*
-      printf("Tunnel detected on this host! %-8s %-6d %-6d %-6d %-10s %-10s %-16s %-16d %-16s %-16d \n", ts,
-             m->pid, m->ppid, m->uid, currentUser, m->command,
-              remoteData.ipAddress, remoteData.port,
-              sockData.ipAddress, sockData.port);
+      printf("Tunnel detected on this host! %-8s %-6d %-6d %-6d %-10s %-10s
+      %-16s %-16d %-16s %-16d \n", ts, m->pid, m->ppid, m->uid, currentUser,
+      m->command, remoteData.ipAddress, remoteData.port, sockData.ipAddress,
+      sockData.port);
       */
     }
-  
+
   } else if (m->type_id == EXECVE) {
     log_trace("User started SSH");
     struct event eventArg;
@@ -314,24 +321,30 @@ void handle_event(void *ctx, int cpu, void *data, unsigned int data_sz) {
     }
     char *args_log = print_args(eventArg);
     if (forward) {
-      printf("\"Message\":\"Local forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf("\"Message\":\"Local forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",
+             args_log, m->pid, m->ppid);
       forward = false;
     } else if (reverse) {
-      printf("\"Message\":\"Remote forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf(
+          "\"Message\":\"Remote forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",
+          args_log, m->pid, m->ppid);
       reverse = false;
     } else if (dynamic) {
-      printf("\"Message\":\"Dynamic forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf(
+          "\"Message\":\"Dynamic forwarding\":\"%s\",\"PID\":%d,\"PPID\":%d\n",
+          args_log, m->pid, m->ppid);
       dynamic = false;
     } else {
-      printf("\"Message\":\"SSH executed\":\"%s\",\"PID\":%d,\"PPID\":%d\n",args_log, m->pid, m->ppid);
+      printf("\"Message\":\"SSH executed\":\"%s\",\"PID\":%d,\"PPID\":%d\n",
+             args_log, m->pid, m->ppid);
     }
 
     free(args_log);
 
   } else if (m->type_id == GETPEERNAME) {
-    if (addrMap){
+    if (addrMap) {
       bpf_map_update_elem(addrMap, &m->pid, &sockData, BPF_ANY);
-      log_trace("Updated %d PID for sshd",m->pid);
+      log_trace("Updated %d PID for sshd", m->pid);
     }
   } else {
     log_info("Unexpected event sent");
@@ -365,21 +378,19 @@ static int parse_arg(int key, char *arg, struct argp_state *state) {
     argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
     break;
   case MAX_ARGS_KEY:
-		errno = 0;
-		max_args = strtol(arg, NULL, 10);
-		if (errno || max_args < 1 || max_args > TOTAL_MAX_ARGS) {
-			fprintf(stderr, "Invalid MAX_ARGS %s, should be in [1, %d] range\n",
-					arg, TOTAL_MAX_ARGS);
+    errno = 0;
+    max_args = strtol(arg, NULL, 10);
+    if (errno || max_args < 1 || max_args > TOTAL_MAX_ARGS) {
+      fprintf(stderr, "Invalid MAX_ARGS %s, should be in [1, %d] range\n", arg,
+              TOTAL_MAX_ARGS);
 
-			argp_usage(state);
-		}
-		envVar.max_args = max_args;
-		break;
+      argp_usage(state);
+    }
+    envVar.max_args = max_args;
+    break;
   }
   return 0;
 }
-
-
 
 int main(int argc, char **argv) {
 
@@ -398,9 +409,9 @@ int main(int argc, char **argv) {
     /*
     printf("%-24s %-6s %-6s %-6s %-10s %-10s %-16s %-16s %-16s %-16s %-16s\n",
            "Timestamp", "PID", "PPID", "UID", "User",
-           "Command", "Source IP", "Source Port", "Destination IP", "Destination Port", "Message");
+           "Command", "Source IP", "Source Port", "Destination IP", "Destination
+    Port", "Message");
     */
-    
   }
 
   fp = fopen("/var/log/sshtunnel.log", "a"); // open file
